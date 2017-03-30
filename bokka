@@ -244,7 +244,6 @@ function create {
         fi
     fi
 
-    # With new setup we'll have the repo cloned down, but it will only have a composer.json file and the child theme (if it's not a brand new boilerplate project)
     if [ ! -d "$VVV/www/$SITENAME/htdocs/wp-includes" ]; then
         echo "Downloading WordPress Core"
 
