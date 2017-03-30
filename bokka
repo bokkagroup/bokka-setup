@@ -1,0 +1,487 @@
+# Vagrant Site Creator
+echo '-------------------------------------------------------------------------------'
+echo 'Welcome to Bokka WP CLI'
+echo '-------------------------------------------------------------------------------'
+
+# ------------------------------------------------------------------------------
+# Program Index:
+# Argument Parser
+# Utility Functions
+# Methods:
+# |- CREATE --creates new virtual hosts
+# |- Generate --scaffolds mvc
+# |- Initialize --runs our methods
+# Templates:
+# |- template_mv
+# |- template_vagrant_init
+# |- template_vagrant_nginx
+# |- template_vagrant_wpconfig
+# Run Initialize - application begins running here
+# ------------------------------------------------------------------------------
+
+# Use > 1 to consume two arguments per pass in the loop (e.g. each
+# argument has a corresponding value to go with it).
+# Use > 0 to consume one or more arguments per pass in the loop (e.g.
+# some arguments don't have a corresponding value to go with it such
+# as in the --default example).
+# note: if this is set to > 0 the /etc/hosts part is not recognized ( may be a bug )
+while [[ $# > 1 ]]
+do
+key="$1"
+case $key in
+    -c|--create|create)
+    METHOD=CREATE
+    SITENAME="$2"
+    shift # past argument
+    ;;
+    -g|--generate|generate)
+    METHOD=GENERATE
+    TOGENERATE="$2"
+    shift
+    ;;
+    -s|--sitename)
+    SITENAME="$2"
+    shift
+    ;;
+    *)
+    METHOD=$key
+    ;;
+esac
+shift # past argument or value
+done
+
+# ------------------------------------------------------------------------------
+#
+# Utility Functions
+#
+# ------------------------------------------------------------------------------
+
+
+# exits the create method and cleans up any created files due to error.
+# ------------------------------------------------------------------------------
+function exit_create {
+
+    echo "Error: ${1:-"Unknown Error"}" 1>&2
+    echo "Cleaning Up."
+    rm -rf $VVV/www/$SITENAME/
+    exit 1
+}
+
+# Sets $PROJECTROOT variable
+# ------------------------------------------------------------------------------
+function get_project_root {
+
+
+    while [[ ${PWD##*/} != "htdocs"  && ${PWD##*/} != "" ]] ; do
+        find "$PWD"/ -maxdepth 1 "$@"  1> /dev/null
+        cd ..
+    done
+
+
+    if [ "${PWD##*/}" = "htdocs" ]
+    then
+        PROJECTROOT=${PWD}
+    else
+        PROJECTROOT=""
+    fi
+}
+
+# Set $THEME child or parent theme (child trumps parent)
+# ------------------------------------------------------------------------------
+function get_theme {
+
+    if [ -d "$PROJECTROOT/wp-content/themes/bokka-wp-theme-child" ]
+        then
+        THEME="bokka-wp-theme-child"
+    else
+        THEME="bokka-wp-theme"
+    fi
+
+}
+
+# Checks to make sure this is a wordpress project
+# ------------------------------------------------------------------------------
+function is_wordpress {
+    local is=1
+
+    if ! [ ${PROJECTROOT:+1} ]
+    then
+        get_project_root
+    fi
+
+    if  [ -f "$PROJECTROOT/wp-config.php" ] && [ ${PROJECTROOT:+1} ]
+    then
+        is=0
+    else
+        is=1
+    fi
+
+    return $is
+}
+
+# Checks to see if this is a Bokka WP Theme Project
+# ------------------------------------------------------------------------------
+function is_bokka {
+
+        local is=1
+
+        if ! [ ${PROJECTROOT:+1} ]
+        then
+            get_project_root
+        fi
+
+        if is_wordpress && [ -d "$PROJECTROOT/wp-content/themes/bokka-wp-theme" ]; then
+
+            is=0
+        else
+            is=1
+        fi
+
+    return $is
+}
+
+# ------------------------------------------------------------------------------
+# ~============================================================================~
+# -------------------+++++++++++++++ METHODS +++++++++++++++--------------------
+# ~============================================================================~
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
+#
+# Create Method
+#
+# ------------------------------------------------------------------------------
+function create {
+
+    #check for valid sitename
+    if ! [[ $SITENAME =~ ^[A-Za-z]+$ ]]; then
+        error_exit 'Invalid sitename, must use characters A-Z (no special characters)'
+    fi
+
+    #make sure SITENAME is set
+    if ! [ ${SITENAME:+1} ]
+    then
+        error_exit 'No sites created. SITENAME required'
+    fi
+
+    #git repo
+    echo -n 'Enter the url to your git repo (default: "bokka-wp-boilerplate"):'
+    read GITREPO
+    GITREPO="${GITREPO:-https://github.com/bokkagroup/bokka-wp-boilerplate.git}"
+
+    echo -n 'Enter the url to the upstream git repo (optional):'
+    read UPSTREAMREPO
+
+    #make sure SITENAME is set
+    if ! [ ${UPSTREAMREPO:+1} ]
+    then
+            echo 'Warning: No upstream repo added.'
+    fi
+
+    #vagrants install
+    echo -n 'Where is your VVV installed (default: ~/vagrants):'
+    read  VVV
+    VVV="${VVV:-$MY_HOME/vagrants}"
+
+    #create vagrants folder
+    if mkdir -p "$VVV/www/$SITENAME"
+    then
+            echo "Creating Vagrant folder"
+    else
+            error_exit "Failed to create vagrant folder"
+    fi
+
+    #Add hosts file
+    if echo "$SITENAME.local" > "$VVV/www/$SITENAME/vvv-hosts"
+    then
+            echo 'Creating hosts file'
+    else
+            error_exit 'Failed to created hosts file'
+    fi
+
+    #Add NGINX configuration
+    echo "Creating NGINX Configuration"
+    template_vagrant_nginx $VVV/www/$SITENAME/vvv-nginx.conf
+
+    #Creat VVV Provision Script
+    echo "Creating Initialization Script"
+    # Init script for VVV Auto Bootstrap
+    template_vagrant_init $VVV/www/$SITENAME/vvv-init.sh
+
+    echo "Cloning Git Repo"
+
+    git clone $GITREPO $VVV/www/$SITENAME/htdocs || error_exit 'Failed to clone repo.'
+
+    cd $VVV/www/$SITENAME/htdocs
+
+    ## Add upstream remote for git
+    if [ ${UPSTREAMREPO:+1} ]
+    then
+        echo 'Adding Upstream'
+        git remote add upstream $UPSTREAMREPO || error_exit 'Failed to add upstream remote.'
+    fi
+
+    echo 'Creating Branches'
+
+    git checkout -B develop ||  error_exit 'Failed to add develop branch.'
+    git checkout -B staging ||  error_exit 'Failed to add staging branch.'
+
+    git checkout master
+
+    # Install composer dependencies
+    if [ -f "composer.json" ]; then
+        echo "Running Composer Install"
+
+        global_composer=$(command -v composer 2>/dev/null)
+        if [ "$global_composer" != "" ]; then
+            echo "Using global Composer"
+            composer install
+        else
+            if [ ! -f "composer.phar" ]; then
+                wget 'https://getcomposer.org/composer.phar'
+            fi
+            php -d detect_unicode=Off composer.phar install
+        fi
+    fi
+
+    # With new setup we'll have the repo cloned down, but it will only have a composer.json file and the child theme (if it's not a brand new boilerplate project)
+    if [ ! -d "$VVV/www/$SITENAME/htdocs/wp-includes" ]; then
+        echo "Downloading WordPress Core"
+
+        if [ ! -d "wp-temp" ]; then
+            mkdir 'wp-temp'
+        fi
+
+        if type wget 2>/dev/null; then
+            # TODO: Get WP version option from CL or config file in project repo
+            wget 'http://wordpress.org/latest.tar.gz' -P wp-temp
+        else
+            echo "You need to install wget. Try 'brew install wget' on OS X"
+            exit 1
+        fi
+
+        tar -xzf 'wp-temp/latest.tar.gz' -C wp-temp
+
+        rsync -rp wp-temp/wordpress/* "$VVV/www/$SITENAME/htdocs/"
+        rm -R 'wp-temp'
+
+        echo "WordPress is now in the htdocs directory"
+    fi
+
+    # Remove unused WordPress themes
+    echo "Removing default WordPress themes"
+    find wp-content/themes -name '*twenty*' | while read line; do
+        rm -rf $line
+    done
+
+    # Remove hello.php plugin
+    find wp-content/plugins -name 'hello.php' -delete
+
+    # Create wp-config
+    echo "Creating wp-config Configuration"
+
+    template_vagrant_wpconfig $VVV/www/$SITENAME/htdocs/wp-config.php
+
+    echo "Provisioning $SITENAME.local"
+
+    echo "Finished creating $SITENAME.local"
+
+    # echo "*********"
+    # echo "To make your changes work run 'vagrant provision' if haven't already run 'vagrant up' "
+    # echo "otherwise run 'vagrant up --provision'"
+    # echo "*********"
+}
+
+# ------------------------------------------------------------------------------
+#
+# Scaffold Method
+#
+# ------------------------------------------------------------------------------
+function generate {
+
+    if is_bokka; then
+        local TYPES=()
+        local PREFIX=""
+        if [[ $TOGENERATE =~ .*View|view$ ]]; then
+            TYPES+=('View')
+            PREFIX=${TOGENERATE%View}
+            PREFIX=${PREFIX%view}
+            echo -e "Preparing to generate ${PREFIX^}View"
+        elif [[ $TOGENERATE =~ .*Model|model$ ]]; then
+            TYPES+=('Model')
+            PREFIX=${TOGENERATE%Model}
+            PREFIX=${PREFIX%model}
+            echo -e "Preparing to generate ${PREFIX^}Model"
+        elif [[ $TOGENERATE =~ .*Controller|controller$ ]]; then
+            TYPES+=('Controller')
+            PREFIX=${TOGENERATE%Controller}
+            PREFIX=${PREFIX%controller}
+             echo -e "Preparing to generate ${PREFIX^}Controller"
+        else
+            TYPES+=('View' 'Model' 'Controller')
+            PREFIX=${TOGENERATE}
+            echo -e "Preparing to generate ${TOGENERATE}"
+        fi
+
+        local counter=0
+        for i in ${TYPES[@]}; do
+
+            if [ ! -f "$PROJECTROOT/wp-content/themes/$THEME/${i,,}s/${PREFIX^}${i}.php" ]
+                then
+
+                ((counter++))
+
+                #dont include model at end of filename
+                if [ $i == "Model" ]
+                then
+                    echo -e "Creating ${PREFIX^}.php"
+                    touch "$PROJECTROOT/wp-content/themes/$THEME/${i,,}s/${PREFIX^}.php"
+                    template_mvc "$PROJECTROOT/wp-content/themes/$THEME/${i,,}s/${PREFIX^}.php"
+
+                else
+                    echo -e "Creating ${PREFIX^}${i}.php"
+                    touch "$PROJECTROOT/wp-content/themes/$THEME/${i,,}s/${PREFIX^}${i}.php"
+                    template_mvc "$PROJECTROOT/wp-content/themes/$THEME/${i,,}s/${PREFIX^}${i}.php"
+                fi
+            else
+                echo "File already exists: ${PREFIX^}${i}.php"
+
+            fi
+
+        done
+
+        echo -e "Finished generating. $counter files created"
+
+    else
+        echo "Error: Need to be inside of a Bokka WP Theme Project folder"
+    fi
+
+}
+
+# ------------------------------------------------------------------------------
+#
+# Initialization function
+#
+# ------------------------------------------------------------------------------
+function initialize {
+    MY_HOME=$HOME
+    get_project_root
+    get_theme
+
+    if [ $METHOD = "CREATE" ]
+        then
+        create
+    elif [ $METHOD = "GENERATE" ]
+        then
+        generate
+    else
+        echo Invalid Method: $METHOD
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# ~============================================================================~
+# ------------------+++++++++++++++ TEMPLATES +++++++++++++++-------------------
+# ~============================================================================~
+# ------------------------------------------------------------------------------
+
+# Basic Template for Models Views and Controllers
+# ------------------------------------------------------------------------------
+function template_mvc {
+    if [ $i == "Model" ]
+        then
+        echo "<?php
+
+    namespace BokkaWP\Theme\\${i,,}s;
+
+    class ${PREFIX^} extends \BokkaWP\MVC\\${i}
+    {
+        public function initialize()
+        {
+
+        }
+    }" > $1
+
+    else
+        echo "<?php
+
+    namespace BokkaWP\Theme\\${i,,}s;
+
+    class ${PREFIX^}${i} extends \BokkaWP\MVC\\${i}
+    {
+        public function initialize()
+        {
+
+        }
+    }" > $1
+    fi
+}
+
+# Template for creating init script for Virtual Host
+# ------------------------------------------------------------------------------
+function template_vagrant_init {
+    echo "echo \"Commencing $SITENAME\"
+
+# Make a database, if we don't already have one
+echo \"Creating database (if it's not already there)\"
+mysql -u root --password=root -e \"CREATE DATABASE IF NOT EXISTS $SITENAME\"
+mysql -u root --password=root -e \"GRANT ALL PRIVILEGES ON $SITENAME.* TO wp@localhost IDENTIFIED BY 'wp';\"
+
+# Download our git repo or treat project as if it were a new one.
+if [ ! -f $VVV/www/$SITENAME/htdocs ]
+then
+        #echo \"Installing WordPress using WP CLI\"
+        #ln -s $sites/$SITENAME $VVV/www/$SITENAME/htdocs
+        #cd htdocs
+        #wp core download
+        #wp core config --dbname=\"$SITENAME\" --dbuser=wp --dbpass=wp --dbhost=\"localhost\"
+        #wp core install --url=vvv-demo-1.dev --title=\"VVV Bootstrap Demo 1\" --admin_user=admin --admin_password=password --admin_email=demo@example.com
+        #cd ..
+fi
+
+# The Vagrant site setup script will restart Nginx for us
+
+echo \"$siteWatch site now installed\";" > $1
+}
+
+# Vagrant NGINX configuration
+# ------------------------------------------------------------------------------
+function template_vagrant_nginx {
+    echo "server {
+    listen                      80;
+    server_name         $SITENAME.local;
+
+    root                        {vvv_path_to_folder}/htdocs;
+
+    include                     /etc/nginx/nginx-wp-common.conf;
+}" > $1
+}
+
+# Vagrant wp-config template
+# ------------------------------------------------------------------------------
+function template_vagrant_wpconfig {
+    echo "<?php define('DB_NAME', '$SITENAME');
+define('DB_USER', 'wp');
+define('DB_PASSWORD', 'wp');
+define('DB_HOST', 'localhost');
+define('DB_CHARSET', 'utf8');
+define('DB_COLLATE', '');
+
+\$table_prefix  = 'wp_';
+define( 'WP_SITEURL', 'http://$SITENAME.local' );
+
+define( 'WP_HOME', 'http://$SITENAME.local' );
+define('WP_DEBUG', true);
+
+if ( !defined('ABSPATH') )
+    define('ABSPATH', dirname(__FILE__) . '/');
+
+require_once(ABSPATH . 'wp-settings.php');
+" > $1
+}
+
+# ------------------------------------------------------------------------------
+# Kick it all off
+# ------------------------------------------------------------------------------
+
+initialize
