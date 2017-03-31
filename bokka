@@ -228,6 +228,9 @@ function create {
 
     git checkout master
 
+    # Get default .gitignore file
+    curl -O https://gist.githubusercontent.com/lstanard/06ea6313b91075e51c332b78352db03f/raw/87b63dd2be1baa66bbd6cd498fb94ac2a674c9cd/.gitignore
+
     # Install composer dependencies
     if [ -f "composer.json" ]; then
         echo "Running Composer Install"
@@ -275,6 +278,10 @@ function create {
 
     # Remove hello.php plugin
     find wp-content/plugins -name 'hello.php' -delete
+
+    # Get and move muplugin loader file
+    curl -O https://gist.githubusercontent.com/mikemcguire/d6305c0c1674f398f95bd14fcc51cca7/raw/2a43fb4df4fbe519b78b0f43ba891ca6562d0d5f/load.php
+    mv load.php wp-content/mu-plugins
 
     # Create wp-config
     echo "Creating wp-config Configuration"
