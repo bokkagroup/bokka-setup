@@ -280,7 +280,7 @@ function create {
     find wp-content/plugins -name 'hello.php' -delete
 
     # Get and move muplugin loader file
-    curl -O https://gist.githubusercontent.com/mikemcguire/d6305c0c1674f398f95bd14fcc51cca7/raw/2a43fb4df4fbe519b78b0f43ba891ca6562d0d5f/load.php
+    curl -O https://gist.githubusercontent.com/lstanard/24d23a7dd1554480600ea919702b49ba/raw/69832a344fb7119e599f4b1fc8e7241b6c3a83b3/load.php
     mv load.php wp-content/mu-plugins
 
     # Create wp-config
