@@ -256,7 +256,7 @@ function create {
 
         if type wget 2>/dev/null; then
             # TODO: Get WP version option from CL or config file in project repo
-            wget 'http://wordpress.org/latest.tar.gz' -P wp-temp
+            wget 'https://wordpress.org/latest.tar.gz' -P wp-temp
         else
             echo "You need to install wget. Try 'brew install wget' on OS X"
             exit 1
